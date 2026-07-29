@@ -2,16 +2,19 @@ provider "aws" {
     region = "us-east-2"
 }
 
-resource "aws_launch_configuration" "example" {
+resource "aws_launch_template" "example" {
+  name_prefix = "terraform-lt-example"
   image_id = "ami-0fb653ca2d3203ac1"
   instance_type = "t2.micro"
-  security_groups = [aws_security_group.instance.id]
 
-  user_data = <<-EOF
+  vpc_security_group_ids = [aws_security_group.instance.id]
+
+  user_data = base64encode(<<-EOF
                 #!/bin/bash
                 echo "This is a web server, alright." > index.html
                 nohup busybox httpd -f -p ${var.server_port} &
                 EOF
+  )
 
   # Below is required when using a launch config with an ASG
   lifecycle {
@@ -20,13 +23,17 @@ resource "aws_launch_configuration" "example" {
 }
 
 resource "aws_autoscaling_group" "example" {
-  launch_configuration = aws_launch_configuration.example.name
   vpc_zone_identifier = data.aws_subnets.default.ids
   target_group_arns = [aws_lb_target_group.asg.arn]
   health_check_type = "ELB"
 
   min_size = 2
   max_size = 10
+
+  launch_template {
+    id = aws_launch_template.example.id
+    version = "$Latest"
+  }
 
   tag {
     key = "Name"
@@ -96,7 +103,7 @@ resource "aws_security_group" "alb" {
   name = "terraform-example-alb"
 
   # Allow inbound HTTP traffic
-  ingress = {
+  ingress {
     from_port = 80
     to_port = 80
     protocol = "tcp"
@@ -104,7 +111,7 @@ resource "aws_security_group" "alb" {
   }
 
   # Allow all outbound requests
-  egress = {
+  egress {
     from_port = 0
     to_port = 0
     protocol = "-1"
